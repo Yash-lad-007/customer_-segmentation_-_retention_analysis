@@ -20,4 +20,3 @@ Insights can help target marketing and improve retention.
 ## How to Run
 1. Install requirements
 2. Run notebook
-# customer_-segmentation_-_retention_analysis
