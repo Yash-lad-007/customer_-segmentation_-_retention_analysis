@@ -2,76 +2,124 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ---------------------------
-# Page Config
-# ---------------------------
-st.set_page_config(
-    page_title="Online Retail Dashboard",
-    layout="wide"
+st.set_page_config(page_title="Retail Analytics", layout="wide")
+
+st.title("📊 Retail Analytics Dashboard")
+
+# -----------------------------
+# File Upload
+# -----------------------------
+uploaded_file = st.sidebar.file_uploader(
+    "Upload your CSV",
+    type=["csv"]
 )
 
-st.title("📊 Online Retail Analytics App")
-
-# ---------------------------
-# Load Data
-# ---------------------------
-@st.cache_data
-def load_data():
+if uploaded_file:
+    df = pd.read_csv(uploaded_file, encoding="ISO-8859-1")
+else:
     df = pd.read_csv("online_retail.csv", encoding="ISO-8859-1")
-    return df
 
-df = load_data()
+# -----------------------------
+# Data Cleaning
+# -----------------------------
+df.dropna(subset=["CustomerID"], inplace=True)
+df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"])
+df["Revenue"] = df["Quantity"] * df["UnitPrice"]
 
-# ---------------------------
+# -----------------------------
 # Sidebar Filters
-# ---------------------------
+# -----------------------------
 st.sidebar.header("Filters")
 
-countries = st.sidebar.multiselect(
-    "Select Country",
-    options=df["Country"].dropna().unique(),
-    default=df["Country"].dropna().unique()[:5]
+country = st.sidebar.multiselect(
+    "Country",
+    df["Country"].unique(),
+    default=df["Country"].unique()[:5]
 )
 
-filtered_df = df[df["Country"].isin(countries)]
+date_range = st.sidebar.date_input(
+    "Date Range",
+    [df["InvoiceDate"].min(), df["InvoiceDate"].max()]
+)
 
-# ---------------------------
-# Data Preview
-# ---------------------------
-st.subheader("Dataset Preview")
-st.dataframe(filtered_df.head())
+filtered = df[
+    (df["Country"].isin(country)) &
+    (df["InvoiceDate"].dt.date >= date_range[0]) &
+    (df["InvoiceDate"].dt.date <= date_range[1])
+]
 
-# ---------------------------
-# Basic Metrics
-# ---------------------------
+# -----------------------------
+# KPIs
+# -----------------------------
 st.subheader("Key Metrics")
 
-col1, col2, col3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 
-col1.metric("Total Rows", len(filtered_df))
-col2.metric("Unique Customers", filtered_df["CustomerID"].nunique())
-col3.metric("Unique Products", filtered_df["StockCode"].nunique())
+c1.metric("Revenue", f"${filtered['Revenue'].sum():,.0f}")
+c2.metric("Orders", filtered["InvoiceNo"].nunique())
+c3.metric("Customers", filtered["CustomerID"].nunique())
+c4.metric("Avg Order Value",
+          f"${filtered['Revenue'].sum()/filtered['InvoiceNo'].nunique():.2f}")
 
-# ---------------------------
-# Sales Analysis
-# ---------------------------
-st.subheader("Sales by Country")
+# -----------------------------
+# Sales Trend
+# -----------------------------
+st.subheader("Revenue Over Time")
 
-sales = (
-    filtered_df
-    .groupby("Country")["Quantity"]
-    .sum()
-    .sort_values(ascending=False)
-)
+time_sales = filtered.groupby(
+    filtered["InvoiceDate"].dt.to_period("M")
+)["Revenue"].sum()
 
 fig, ax = plt.subplots()
-sales.plot(kind="bar", ax=ax)
+time_sales.plot(ax=ax)
 st.pyplot(fig)
 
-# ---------------------------
-# Optional Raw Data
-# ---------------------------
-if st.checkbox("Show Raw Data"):
-    st.write(filtered_df)
+# -----------------------------
+# Top Products
+# -----------------------------
+st.subheader("Top Products")
 
-st.success("App running successfully!")
+top_products = (
+    filtered.groupby("Description")["Revenue"]
+    .sum()
+    .sort_values(ascending=False)
+    .head(10)
+)
+
+fig2, ax2 = plt.subplots()
+top_products.plot(kind="barh", ax=ax2)
+st.pyplot(fig2)
+
+# -----------------------------
+# RFM Segmentation
+# -----------------------------
+st.subheader("Customer Segmentation (RFM)")
+
+snapshot_date = filtered["InvoiceDate"].max()
+
+rfm = filtered.groupby("CustomerID").agg({
+    "InvoiceDate": lambda x: (snapshot_date - x.max()).days,
+    "InvoiceNo": "nunique",
+    "Revenue": "sum"
+})
+
+rfm.columns = ["Recency", "Frequency", "Monetary"]
+
+st.dataframe(rfm.head())
+
+# -----------------------------
+# Download Data
+# -----------------------------
+st.download_button(
+    "Download Filtered Data",
+    filtered.to_csv(index=False),
+    "filtered_data.csv"
+)
+
+# -----------------------------
+# Raw Data Toggle
+# -----------------------------
+if st.checkbox("Show Raw Data"):
+    st.dataframe(filtered)
+
+st.success("Dashboard Ready")
